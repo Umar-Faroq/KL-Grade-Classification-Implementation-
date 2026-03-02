@@ -19,8 +19,74 @@ except Exception:
 try:
     from selective_scan import selective_scan_fn as selective_scan_fn_v1
     from selective_scan import selective_scan_ref as selective_scan_ref_v1
-except:
-    pass
+except Exception:
+    selective_scan_fn_v1 = None
+    selective_scan_ref_v1 = None
+
+
+def selective_scan_fn_pytorch(u, delta, A, B, C, D_skip, z=None,
+                               delta_bias=None, delta_softplus=False,
+                               return_last_state=False):
+    """Pure-PyTorch fallback for selective_scan_fn (no mamba_ssm required).
+
+    Args:
+        u      : (B, D, L)
+        delta  : (B, D, L)
+        A      : (D, N)
+        B      : (B, N, L) or (B, K, N, L)  grouped when 4-D
+        C      : (B, N, L) or (B, K, N, L)  grouped when 4-D
+        D_skip : (D,)  skip-connection weight
+        delta_bias    : (D,) optional bias added to delta before softplus
+        delta_softplus: apply softplus to delta after adding bias
+        return_last_state: also return final hidden state h
+    Returns:
+        y : (B, D, L)  [and h : (B, D, N) if return_last_state]
+    """
+    batch, D, L = u.shape
+    N = A.shape[1]
+
+    if delta_bias is not None:
+        delta = delta + delta_bias[None, :, None]
+    if delta_softplus:
+        delta = F.softplus(delta)
+
+    # When B/C are grouped (4-D): (B, K, N, L) → expand to (B, D, N, L)
+    grouped = B.dim() == 4
+    if grouped:
+        K = B.shape[1]
+        d_per_group = D // K
+        # repeat_interleave along the group dim so each channel gets its group's B/C
+        B = B.repeat_interleave(d_per_group, dim=1)   # (batch, D, N, L)
+        C = C.repeat_interleave(d_per_group, dim=1)   # (batch, D, N, L)
+    else:
+        B = B.unsqueeze(1).expand(batch, D, N, L)      # (batch, D, N, L)
+        C = C.unsqueeze(1).expand(batch, D, N, L)      # (batch, D, N, L)
+
+    # A: (D, N) — shared across batch
+    h = u.new_zeros(batch, D, N)
+    ys = []
+    for t in range(L):
+        delta_t = delta[:, :, t]                              # (batch, D)
+        dA_t = torch.exp(delta_t.unsqueeze(-1) * A[None])    # (batch, D, N)
+        dBu_t = (delta_t.unsqueeze(-1)
+                 * B[:, :, :, t]
+                 * u[:, :, t].unsqueeze(-1))                  # (batch, D, N)
+        h = dA_t * h + dBu_t                                  # (batch, D, N)
+        y_t = (C[:, :, :, t] * h).sum(dim=-1)                # (batch, D)
+        ys.append(y_t)
+
+    y = torch.stack(ys, dim=2)   # (batch, D, L)
+    if D_skip is not None:
+        y = y + u * D_skip[None, :, None]
+
+    if return_last_state:
+        return y, h
+    return y
+
+
+# Use the CUDA-accelerated kernel when available, otherwise fall back to PyTorch.
+if selective_scan_fn is None:
+    selective_scan_fn = selective_scan_fn_pytorch
 
 DropPath.__repr__ = lambda self: f"timm.DropPath({self.drop_prob})"
 
