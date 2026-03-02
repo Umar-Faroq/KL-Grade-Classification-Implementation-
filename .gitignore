@@ -1,0 +1,13 @@
+runs/
+checkpoints/
+results/
+__pycache__/
+*.pyc
+*.pyo
+*.pth
+*.egg-info/
+.eggs/
+dist/
+build/
+.DS_Store
+*.ipynb_checkpoints/
