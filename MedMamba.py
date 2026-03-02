@@ -11,8 +11,9 @@ from einops import rearrange, repeat
 from timm.models.layers import DropPath, to_2tuple, trunc_normal_
 try:
     from mamba_ssm.ops.selective_scan_interface import selective_scan_fn, selective_scan_ref
-except:
-    pass
+except Exception:
+    selective_scan_fn = None
+    selective_scan_ref = None
 
 # an alternative for mamba_ssm (in which causal_conv1d is needed)
 try:
@@ -757,10 +758,11 @@ class VSSM(nn.Module):
         return x
 
 
-medmamba_t = VSSM(depths=[2, 2, 4, 2],dims=[96,192,384,768],num_classes=6).to("cuda")
-medmamba_s = VSSM(depths=[2, 2, 8, 2],dims=[96,192,384,768],num_classes=6).to("cuda")
-medmamba_b = VSSM(depths=[2, 2, 12, 2],dims=[128,256,512,1024],num_classes=6).to("cuda")
+if __name__ == "__main__":
+    medmamba_t = VSSM(depths=[2, 2, 4, 2],dims=[96,192,384,768],num_classes=6).to("cuda")
+    medmamba_s = VSSM(depths=[2, 2, 8, 2],dims=[96,192,384,768],num_classes=6).to("cuda")
+    medmamba_b = VSSM(depths=[2, 2, 12, 2],dims=[128,256,512,1024],num_classes=6).to("cuda")
 
-data = torch.randn(1,3,224,224).to("cuda")
+    data = torch.randn(1,3,224,224).to("cuda")
 
-print(medmamba_t(data).shape)
+    print(medmamba_t(data).shape)
